@@ -10,7 +10,7 @@ import logging
 from lerobot.teleoperators.so101_leader import SO101LeaderConfig, SO101Leader
 from lerobot.robots.so101_follower import SO101FollowerConfig, SO101Follower
 # from lerobot.policies.act.modeling_act import ACTPolicy
-from lerobot.policies.smolvia.modeling_smolvia import SmolVLAPolicy
+from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
 from lerobot.utils.control_utils import init_keyboard_listener, predict_action
 from lerobot.utils.utils import log_say, get_safe_torch_device
@@ -21,8 +21,10 @@ NUM_EPISODES = 5
 FPS = 30
 EPISODE_TIME_SEC = 60
 TASK_DESCRIPTION = "Pick up the red marker and put it in the box"
-REPO_ID = "nobana/zzinmak"
-local_dataset_path = os.path.join(os.path.expanduser("~/lerobotbi/lerobot/src/lerobot"), REPO_ID)
+REPO_ID = "eval_test2"
+POLICY_REPO_ID = 'pretrained_model'
+local_policy_path = os.path.join(os.path.expanduser("~/lerobotbi/lerobot/src/lerobot/policy/test2_smolvla/checkpoints/last"), POLICY_REPO_ID)
+local_dataset_path = os.path.join(os.path.expanduser("~/lerobotbi/lerobot/src/lerobot/nobana"), REPO_ID)
 
 # Create the robot and teleoperator configurations
 camera_config = {
@@ -47,7 +49,7 @@ robot = SO101Follower(robot_config)
 
 # Initialize the policy
 # policy = ACTPolicy.from_pretrained("<hf_username>/<my_policy_repo_id>")
-policy = SmolVLAPolicy.from_pretrained("<hf_username>/<my_policy_repo_id>")
+policy = SmolVLAPolicy.from_pretrained(local_policy_path)
 device = get_safe_torch_device(policy.config.device)
 policy.to(device)
 
@@ -90,7 +92,7 @@ teleop.connect()
 # Start the hybrid control loop for multiple episodes
 for episode_idx in range(NUM_EPISODES):
     policy_control_active = False
-    log_say(f"Starting hybrid control for episode {episode_idx + 1} of {NUM_EPISODES}. Using teleoperation.")
+    print(f"Starting hybrid control for episode {episode_idx + 1} of {NUM_EPISODES}. Using teleoperation.")
 
     start_episode_t = time.perf_counter()
     while not events["stop_recording"] and time.perf_counter() - start_episode_t < EPISODE_TIME_SEC:
@@ -101,7 +103,7 @@ for episode_idx in range(NUM_EPISODES):
         if not policy_control_active:
             # Teleoperation control
             action = teleop.get_action()
-
+            sent_action = robot.send_action(action)
             user_choice = input("If you want to switch to policy inference, press Enter: ")
             if user_choice == '':
                 print("Switching to policy control.")
@@ -122,18 +124,15 @@ for episode_idx in range(NUM_EPISODES):
         frame = {**observation_frame, **action_frame}
         dataset.add_frame(frame, task=TASK_DESCRIPTION)
 
-        if events["display_data"]:
-            log_rerun_data(observation, sent_action)
-
         dt_s = time.perf_counter() - start_loop_t
         busy_wait(1 / FPS - dt_s)
 
     # Save data after the episode ends
     if not events["stop_recording"]:
-        log_say("Episode complete. Saving data...")
+        print("Episode complete. Saving data...")
         dataset.save_episode()
     else:
-        log_say("Stopping recording early. Discarding last episode...")
+        print("Stopping recording early. Discarding last episode...")
         dataset.stop_image_writer()
         dataset.clear_episode_buffer()
         dataset.start_image_writer(num_threads=4)
